@@ -3,6 +3,38 @@
 > Leia este arquivo inteiro antes de agir. Ele resume o objetivo, as decisões já
 > tomadas (e o **porquê**), os requisitos que o usuário deve seguir, o que já está
 > pronto/testado e o que falta. Assim você não repete discussões nem quebra o que funciona.
+> Veja também **ARQUITETURA.md** (blueprint) e **INSTALACAO_CASA.md** (setup passo a passo).
+
+---
+
+## ⭐ CHECKPOINT (estado atual — leia primeiro)
+
+**O que é:** ferramenta "PixelLab caseiro" — **local, grátis, sem login/conta** — que gera
+**spritesheets 8 direções** (estilo **Ragnarok Online**) pro **Godot 4**. Alvo: MMO 2D isométrico.
+
+**Como usar (um comando, 4 tipos de entrada):**
+`py criar.py <TEXTO | imagem.png | modelo.glb | pasta_de_frames> [--size 64] [--elevation 45]`
+→ detecta a entrada e roda as 5 fases → `output/<nome>.png/.json/_frames.tres`.
+
+**Fases:** 1) texto→imagem (SD local) · 2) imagem→3D (TripoSR) · 3) rig+animações (UniRig)
+· 4) render 8 direções (Blender via `bpy`) · 5) pixeliza→folha→Godot.
+
+**Pronto e TESTADO** (roda sem GPU, validado com o modelo CC0 Fox):
+- Fases **4 e 5** (render 8 dir + folha + `.tres` Godot). `py tests/testar_pipeline.py` passa.
+- Render via **`pip install bpy`** (driblou o AppLocker da máquina de trabalho — sem app, sem admin).
+- Câmera **45°** (estilo RO), ajustável por `--elevation` (45–60). Workbench já sai com textura/cor.
+- Ações no `config`: idle, walk, attack, sit, hurt, dead × 8 direções.
+
+**Escrito mas NÃO testado (precisa da GPU de casa — RTX 5060 Ti):**
+- `src/gerar_concept.py` (Fase 1, Stable Diffusion) — scaffold, ajustar checkpoint.
+- `src/gerar3d.py` (Fase 2, TripoSR) — instalar via `instalar_3d.bat`.
+- `src/rig.py` (Fase 3, UniRig) — **o gargalo aberto**: o auto-rig é chamada externa a
+  confirmar no README do UniRig, e o **retargeting das animações mocap ainda NÃO foi resolvido**.
+
+**Onde parou / próximo passo:** tudo que não é GPU está pronto e no GitHub
+(github.com/Lscigliano/ProjetoSprite). O próximo trabalho é **na máquina de casa (GPU)**:
+rodar `instalar_3d.bat`, validar Fases 1–2, e atacar a **Fase 3 (rig + retarget)** — o elo faltante.
+Rode `py verificar_ambiente.py` na máquina de casa para ver o que falta instalar.
 
 ---
 
