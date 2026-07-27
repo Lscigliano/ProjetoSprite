@@ -35,6 +35,8 @@ def _parse_args(argv):
     ap.add_argument("--resolution", type=int, default=512, help="resolucao do render antes de pixelizar")
     ap.add_argument("--engine", default=None,
                     help="motor de render: BLENDER_EEVEE_NEXT / CYCLES / BLENDER_WORKBENCH")
+    ap.add_argument("--elevation", type=float, default=None,
+                    help="angulo da camera em graus (30=isometrico, 45-60=top-down RO, 90=top-down reto)")
     return ap.parse_args(argv)
 
 
@@ -143,6 +145,11 @@ def _setup_render(bpy, resolution, engine=None):
         scene.cycles.device = "CPU"
         scene.cycles.samples = 16
 
+    if chosen == "BLENDER_WORKBENCH":
+        # mostra a TEXTURA do modelo (senao sai cinza) + luz de estudio
+        scene.display.shading.light = "STUDIO"
+        scene.display.shading.color_type = "TEXTURE"
+
     scene.render.resolution_x = resolution
     scene.render.resolution_y = resolution
     scene.render.film_transparent = True  # fundo transparente
@@ -182,7 +189,8 @@ def main():
     _import_model(bpy, Path(args.model))
 
     center, height = _scene_bounds(bpy)
-    _setup_camera(bpy, center, height, config["camera"]["elevation_deg"], config["camera"]["orthographic"])
+    elev = args.elevation if args.elevation is not None else config["camera"]["elevation_deg"]
+    _setup_camera(bpy, center, height, elev, config["camera"]["orthographic"])
     _setup_lighting(bpy, center, height)
     engine = args.engine or config.get("render", {}).get("engine")
     _setup_render(bpy, args.resolution, engine)

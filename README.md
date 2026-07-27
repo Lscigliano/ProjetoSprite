@@ -21,13 +21,24 @@ com qualidade/consistência de MMO. O 3D é o que garante o mesmo personagem em 
 
 ## Uso (o comando único)
 
-```bash
-# a partir de um modelo 3D animado (usa o módulo bpy, instalado via requirements):
-py criar.py input/hero.glb
+A entrada pode ser **texto, imagem, modelo 3D ou pasta de frames** — o programa detecta:
 
-# a partir de frames já renderizados:
+```bash
+# 1) TEXTO (descreva)         [Fase 1: SD local -> imagem] (GPU)
+py criar.py "urso guerreiro chibi, armadura laranja, olhos vermelhos" --size 64
+
+# 2) IMAGEM (você já tem)     [pula a Fase 1]              (GPU p/ 3D)
+py criar.py input/arqueiro.png --size 64
+
+# 3) MODELO 3D animado                                     (roda em qualquer PC)
+py criar.py input/hero.glb --elevation 45
+
+# 4) FRAMES já renderizados                                (roda em qualquer PC)
 py criar.py work/hero/render --name hero
 ```
+
+Opções úteis: `--size 64` (tamanho do sprite), `--elevation 45` (ângulo da câmera:
+45–60 = estilo Ragnarok). Veja o que está pronto na máquina com `py verificar_ambiente.py`.
 
 ## Gerador 3D local (opcional, precisa de GPU NVIDIA)
 

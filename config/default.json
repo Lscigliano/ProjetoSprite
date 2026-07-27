@@ -3,8 +3,8 @@
   "description": "Config padrao do pipeline de spritesheet isometrico 8-direcoes.",
 
   "camera": {
-    "_comment": "Isometrico verdadeiro = elevacao ~30 graus. O modelo gira nos 8 azimutes.",
-    "elevation_deg": 30.0,
+    "_comment": "Angulo estilo Ragnarok = top-down inclinado ~45-60 graus. 30=isometrico lateral, 90=top-down reto. O modelo gira nos 8 azimutes.",
+    "elevation_deg": 45.0,
     "orthographic": true,
     "azimuth_offset_deg": 0.0
   },
