@@ -19,22 +19,64 @@
 **Fases:** 1) texto→imagem (SD local) · 2) imagem→3D (TripoSR) · 3) rig+animações (UniRig)
 · 4) render 8 direções (Blender via `bpy`) · 5) pixeliza→folha→Godot.
 
-**Pronto e TESTADO** (roda sem GPU, validado com o modelo CC0 Fox):
-- Fases **4 e 5** (render 8 dir + folha + `.tres` Godot). `py tests/testar_pipeline.py` passa.
-- Render via **`pip install bpy`** (driblou o AppLocker da máquina de trabalho — sem app, sem admin).
-- Câmera **45°** (estilo RO), ajustável por `--elevation` (45–60). Workbench já sai com textura/cor.
+**Pronto e TESTADO na máquina de casa (RTX 5060 Ti), sessão 2026-07-27:**
+- Fases **4 e 5** (render 8 dir + folha + `.tres` Godot) — `py tests/testar_pipeline.py` passa,
+  agora com `bpy` REAL (Blender 5.2.0 LTS), não só simulado como na sessão anterior.
+- Fase **2** (imagem→3D, TripoSR) — **VALIDADA de ponta a ponta**: `gerar3d.py` gera `.obj`+`.glb`
+  reais a partir de uma imagem (testado com `third_party/TripoSR/examples/poly_fox.png`).
+  `torch.cuda.is_available() == True`, inferência na GPU (~2s), extração de mesh via
+  `torchmcubes` compilado com CUDA real (~1.5s).
+- Câmera 45° (estilo RO), ajustável por `--elevation` (45–60). Workbench já sai com textura/cor.
 - Ações no `config`: idle, walk, attack, sit, hurt, dead × 8 direções.
 
-**Escrito mas NÃO testado (precisa da GPU de casa — RTX 5060 Ti):**
-- `src/gerar_concept.py` (Fase 1, Stable Diffusion) — scaffold, ajustar checkpoint.
-- `src/gerar3d.py` (Fase 2, TripoSR) — instalar via `instalar_3d.bat`.
-- `src/rig.py` (Fase 3, UniRig) — **o gargalo aberto**: o auto-rig é chamada externa a
-  confirmar no README do UniRig, e o **retargeting das animações mocap ainda NÃO foi resolvido**.
+**AINDA escrito mas NÃO testado:**
+- `src/gerar_concept.py` (Fase 1, Stable Diffusion) — scaffold, ajustar checkpoint. Não mexido
+  nesta sessão (foco foi Fase 2).
+- `src/rig.py` (Fase 3, UniRig) — **o gargalo aberto, ainda não atacado**: o auto-rig é chamada
+  externa a confirmar no README do UniRig, e o **retargeting das animações mocap ainda NÃO foi
+  resolvido**. Confirmado nesta sessão: um `.glb` do TripoSR não tem nenhuma `Action`
+  (idle/walk/etc.) — é só geometria estática — então a Fase 4 roda mas não renderiza nada até
+  a Fase 3 existir de verdade.
 
-**Onde parou / próximo passo:** tudo que não é GPU está pronto e no GitHub
-(github.com/Lscigliano/ProjetoSprite). O próximo trabalho é **na máquina de casa (GPU)**:
-rodar `instalar_3d.bat`, validar Fases 1–2, e atacar a **Fase 3 (rig + retarget)** — o elo faltante.
-Rode `py verificar_ambiente.py` na máquina de casa para ver o que falta instalar.
+### Setup de ambiente desta máquina (casa) — registrar p/ não repetir a depuração
+
+Ambiente veio "zerado" (só driver NVIDIA, sem CUDA Toolkit/Python 3.13). Passos que foram
+necessários e NÃO estavam no HANDOFF anterior:
+
+1. **Python 3.13 via winget** (`Python.Python.3.13`) — só existe wheel de `bpy` pro cp313, não
+   pro Python 3.12 que já estava instalado. `venv_bpy/` (Python 3.13) é o ambiente usado pelas
+   Fases 4-5 (`criar.py`, `tests/testar_pipeline.py`). `venv3d/` (o do `instalar_3d.bat`, Python
+   3.12 — versão base desta máquina) é o ambiente da Fase 2 (`gerar3d.py`/TripoSR). São DOIS
+   venvs por causa da versão de Python exigida por cada wheel — isso é esperado, não confundir.
+2. **CUDA Toolkit via winget** (`Nvidia.CUDA`, instalou 13.3 — não existe 12.8 no winget hoje;
+   13.3 funcionou bem com a RTX 5060 Ti). Só o *driver* NVIDIA (`nvidia-smi`) NÃO basta — o
+   `torchmcubes` (dependência do TripoSR) precisa compilar C++/CUDA e exige o toolkit completo
+   (`nvcc`) instalado à parte. O instalador pede UAC (elevação) — se rodar via automação/CLI,
+   avisar o dono pra aprovar o prompt.
+   - Depois de instalar, a sessão de terminal ABERTA ANTES não pega `CUDA_PATH`/`CUDA_PATH_V13_3`
+     automaticamente (ficam só a nível de máquina/registro) — setar manualmente na sessão atual
+     (`$env:CUDA_PATH`, `$env:CUDA_PATH_V13_3`) antes de instalar pacotes que compilam CUDA.
+3. **Bug de compilação real (CCCL/MSVC muito novo)**: build do `torchmcubes` falhava com
+   `fatal error C1189: MSVC/cl.exe with traditional preprocessor is used` mesmo com CUDA/nvcc
+   corretos. Causa: MSVC 19.51 (Visual Studio 18, versão desta máquina) exige o preprocessador
+   conforme-padrão pro CCCL/CUB novo do CUDA 13.3. **Fix**: setar
+   `$env:NVCC_APPEND_FLAGS = "-Xcompiler /Zc:preprocessor"` antes do `pip install`. Sem isso o
+   build falha sempre nessa combinação de versões.
+4. **Bug de versão numpy/trimesh**: `TripoSR/requirements.txt` pina `trimesh==4.0.5` (2023), que
+   quebra com `numpy>=2.0` (`AttributeError: 'numpy.ndarray' object has no attribute 'ptp'` ao
+   exportar `.glb`). **Fix**: `pip install -U trimesh` (testado com 4.12.2) — o `gerar3d.py` só
+   usa trimesh pra exportar formato, uma versão nova é segura.
+5. **`gradio` foi OMITIDO** do install de `third_party/TripoSR/requirements.txt` de propósito —
+   é dependência só da demo web (`gradio_app.py`), não do `run.py` que `gerar3d.py` chama, e
+   instalar junto causa um backtracking gigante do pip (resolvendo ~150 versões de gradio) sem
+   necessidade. Se um dia precisar da demo web do TripoSR, instalar `gradio` à parte.
+
+**Onde parou / próximo passo:** Fases 2, 4 e 5 validadas nesta máquina com GPU real. O próximo
+trabalho é **a Fase 3 (rig + retarget de animação)** — ainda não atacada, é o gargalo real que
+falta pra fechar o pipeline completo (texto/imagem → sprite ANIMADO). Rode
+`py verificar_ambiente.py` pra conferir o estado do ambiente a qualquer momento (nota: esse
+script hoje só checa o Python "base" do `py`, não os dois venvs — pode reportar `bpy`/`trimesh`
+como faltando mesmo já instalados nos venvs certos; conferir os venvs diretamente se isso confundir).
 
 ---
 
