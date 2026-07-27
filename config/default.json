@@ -22,11 +22,14 @@
   "_directions_comment": "5 angulos renderizados; NW/W/SW sao espelhos horizontais de NE/E/SE (economiza render e garante simetria).",
 
   "animations": [
-    { "name": "idle",   "fps": 6,  "loop": true  },
+    { "name": "idle",   "fps": 5,  "loop": true  },
     { "name": "walk",   "fps": 10, "loop": true  },
     { "name": "attack", "fps": 12, "loop": false },
-    { "name": "hurt",   "fps": 10, "loop": false }
+    { "name": "sit",    "fps": 6,  "loop": false },
+    { "name": "hurt",   "fps": 10, "loop": false },
+    { "name": "dead",   "fps": 8,  "loop": false }
   ],
+  "_animations_comment": "Kit padrao MMO 2D estilo Ragnarok. O nome casa (substring) com a animacao do modelo 3D (ex.: 'attack' casa 'Attack'). Adicione outras (cast, pickup) do mesmo jeito.",
 
   "render": {
     "_comment": "Motor de render. Em casa (GPU) use EEVEE. Sem GPU, o script cai para CYCLES (CPU).",
