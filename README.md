@@ -6,6 +6,9 @@ prontos para o **Godot 4**, a partir de um **modelo 3D animado**.
 O trabalho de arte é feito por IA; este programa cuida da **engenharia**:
 renderiza as 8 direções, dá o look de pixel art, monta a folha e gera o recurso do Godot.
 
+> 🧭 **Continuando o projeto (humano ou IA)?** Leia primeiro o **[HANDOFF.md](HANDOFF.md)** —
+> resumo do contexto, decisões, requisitos da arte, o que está pronto/testado e os próximos passos.
+
 ## O caminho completo (visão geral)
 
 ```
