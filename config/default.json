@@ -1,0 +1,44 @@
+{
+  "project": "CRIADOR SPRITES",
+  "description": "Config padrao do pipeline de spritesheet isometrico 8-direcoes.",
+
+  "camera": {
+    "_comment": "Isometrico verdadeiro = elevacao ~30 graus. O modelo gira nos 8 azimutes.",
+    "elevation_deg": 30.0,
+    "orthographic": true,
+    "azimuth_offset_deg": 0.0
+  },
+
+  "directions": [
+    { "name": "S",  "azimuth_deg": 0,   "mirror_of": null },
+    { "name": "SE", "azimuth_deg": 45,  "mirror_of": null },
+    { "name": "E",  "azimuth_deg": 90,  "mirror_of": null },
+    { "name": "NE", "azimuth_deg": 135, "mirror_of": null },
+    { "name": "N",  "azimuth_deg": 180, "mirror_of": null },
+    { "name": "NW", "azimuth_deg": 135, "mirror_of": "NE" },
+    { "name": "W",  "azimuth_deg": 90,  "mirror_of": "E"  },
+    { "name": "SW", "azimuth_deg": 45,  "mirror_of": "SE" }
+  ],
+  "_directions_comment": "5 angulos renderizados; NW/W/SW sao espelhos horizontais de NE/E/SE (economiza render e garante simetria).",
+
+  "animations": [
+    { "name": "idle",   "fps": 6,  "loop": true  },
+    { "name": "walk",   "fps": 10, "loop": true  },
+    { "name": "attack", "fps": 12, "loop": false },
+    { "name": "hurt",   "fps": 10, "loop": false }
+  ],
+
+  "pixelize": {
+    "enabled": true,
+    "target_height": 64,
+    "colors": 32,
+    "alpha_threshold": 128
+  },
+
+  "sheet": {
+    "cell_w": 64,
+    "cell_h": 64,
+    "padding": 0,
+    "layout": "row_per_anim_dir"
+  }
+}

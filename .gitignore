@@ -1,0 +1,28 @@
+# ambientes / dependencias
+venv3d/
+venv/
+__pycache__/
+*.pyc
+
+# codigo de terceiros clonado pelo instalador
+third_party/
+
+# arquivos de trabalho intermediarios (frames, renders)
+work/
+
+# modelos 3D pesados
+*.glb
+*.fbx
+*.obj
+*.blend
+*.blend1
+
+# manter apenas a demo pequena em output/
+output/*
+!output/teste.png
+!output/teste.json
+!output/teste_frames.tres
+
+# SO
+Thumbs.db
+.DS_Store
