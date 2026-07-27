@@ -21,17 +21,20 @@ from pathlib import Path
 
 
 def _parse_args(argv):
-    # pega tudo depois do "--"
+    # blender --python script -- ARGS  => pega depois do "--"
+    # py script.py ARGS               => usa os argumentos normais
     if "--" in argv:
         argv = argv[argv.index("--") + 1:]
     else:
-        argv = []
+        argv = argv[1:]
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--config", default="config/default.json")
     ap.add_argument("--resolution", type=int, default=512, help="resolucao do render antes de pixelizar")
+    ap.add_argument("--engine", default=None,
+                    help="motor de render: BLENDER_EEVEE_NEXT / CYCLES / BLENDER_WORKBENCH")
     return ap.parse_args(argv)
 
 
@@ -99,16 +102,47 @@ def _setup_camera(bpy, center, height, elevation_deg, ortho):
     return cam
 
 
-def _setup_render(bpy, resolution):
+def _setup_lighting(bpy, center, height):
+    """Luz solar fixa (mundo) + ambiente. Fica parada enquanto o modelo gira,
+    dando sombreamento consistente entre as 8 direcoes (padrao isometrico)."""
+    sun_data = bpy.data.lights.new("SpriteSun", type="SUN")
+    sun_data.energy = 3.0
+    sun = bpy.data.objects.new("SpriteSun", sun_data)
+    bpy.context.scene.collection.objects.link(sun)
+    sun.location = (center[0], center[1], center[2] + max(height, 1.0) * 3)
+    sun.rotation_euler = (math.radians(45), 0.0, math.radians(30))
+
+    world = bpy.context.scene.world or bpy.data.worlds.new("SpriteWorld")
+    bpy.context.scene.world = world
+    world.use_nodes = True
+    bg = world.node_tree.nodes.get("Background")
+    if bg:
+        bg.inputs[1].default_value = 0.6  # forca da luz ambiente
+
+
+def _setup_render(bpy, resolution, engine=None):
     scene = bpy.context.scene
-    scene.render.engine = "BLENDER_EEVEE_NEXT" if hasattr(scene.render, "engine") else "BLENDER_EEVEE"
-    try:
-        scene.render.engine = "BLENDER_EEVEE_NEXT"
-    except Exception:
+
+    # ordem de tentativa: o pedido -> EEVEE (GPU) -> CYCLES (CPU, headless-safe) -> WORKBENCH
+    candidates = [engine] if engine else []
+    candidates += ["BLENDER_EEVEE_NEXT", "BLENDER_EEVEE", "CYCLES", "BLENDER_WORKBENCH"]
+    chosen = None
+    for eng in candidates:
+        if not eng:
+            continue
         try:
-            scene.render.engine = "BLENDER_EEVEE"
-        except Exception:
-            pass
+            scene.render.engine = eng
+            chosen = scene.render.engine
+            break
+        except (TypeError, Exception):
+            continue
+    print(f"[render] motor: {chosen}")
+
+    if chosen == "CYCLES":
+        # CPU e o mais confiavel em headless sem GPU dedicada
+        scene.cycles.device = "CPU"
+        scene.cycles.samples = 16
+
     scene.render.resolution_x = resolution
     scene.render.resolution_y = resolution
     scene.render.film_transparent = True  # fundo transparente
@@ -141,14 +175,17 @@ def main():
 
     args = _parse_args(sys.argv)
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
-    out_root = Path(args.out)
+    # ABSOLUTO: o Blender resolve caminhos relativos de forma diferente (salvava em C:\work).
+    out_root = Path(args.out).resolve()
 
     _clean_scene(bpy)
     _import_model(bpy, Path(args.model))
 
     center, height = _scene_bounds(bpy)
     _setup_camera(bpy, center, height, config["camera"]["elevation_deg"], config["camera"]["orthographic"])
-    _setup_render(bpy, args.resolution)
+    _setup_lighting(bpy, center, height)
+    engine = args.engine or config.get("render", {}).get("engine")
+    _setup_render(bpy, args.resolution, engine)
 
     scene = bpy.context.scene
     roots = _root_objects(bpy)
@@ -157,10 +194,13 @@ def main():
     pivot = bpy.data.objects.new("Pivot", None)
     scene.collection.objects.link(pivot)
     pivot.location = (center[0], center[1], 0.0)
+    bpy.context.view_layer.update()  # garante matrix_world atualizada
     for r in roots:
         if r is pivot:
             continue
         r.parent = pivot
+        # mantem o objeto no lugar (senao "teleporta" pelo offset do pivo)
+        r.matrix_parent_inverse = pivot.matrix_world.inverted()
 
     anim_names = [a["name"] for a in config["animations"]]
     actions = _iter_actions(bpy, anim_names)

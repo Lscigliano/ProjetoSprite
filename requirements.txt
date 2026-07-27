@@ -1,0 +1,11 @@
+# Pipeline principal (render -> pixeliza -> folha -> Godot). Roda sem GPU.
+#   py -m pip install -r requirements.txt
+Pillow>=10
+numpy>=1.26
+trimesh>=4.0
+# Blender como MODULO Python (render headless, sem precisar do app .exe nem de admin).
+# Wheel grande (~centenas de MB) e atrelada a versao do Python. Testado: bpy 5.2 no Python 3.13.
+bpy>=4.2
+
+# --- Imagem->3D (opcional, precisa de GPU NVIDIA) e instalado a parte pelo instalar_3d.bat ---
+# torch/torchvision (CUDA 12.8 para RTX 50), rembg, onnxruntime + TripoSR.

@@ -28,6 +28,11 @@
     { "name": "hurt",   "fps": 10, "loop": false }
   ],
 
+  "render": {
+    "_comment": "Motor de render. Em casa (GPU) use EEVEE. Sem GPU, o script cai para CYCLES (CPU).",
+    "engine": "BLENDER_EEVEE_NEXT"
+  },
+
   "pixelize": {
     "enabled": true,
     "target_height": 64,

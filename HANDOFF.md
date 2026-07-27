@@ -38,9 +38,13 @@ Estes requisitos foram definidos para a reconstrução 3D funcionar. **Reforce-o
 - Cabelo muito longo/solto pode "borrar" no 3D (aviso menor).
 
 ## 4. Hardware
-- **Máquina de trabalho** (onde o código foi escrito): **SEM GPU** → não roda IA 3D nem Blender aqui.
+- **Máquina de trabalho** (onde o código foi escrito): **SEM GPU** e com **AppLocker**
+  (política corporativa) que **bloqueia executar .exe** de pastas do usuário/Temp.
+  → Solução descoberta: rodar o Blender como **módulo Python `bpy`** (`pip install bpy`),
+    que executa dentro do `python.exe` (permitido). O render funciona MESMO aqui, sem admin.
 - **Máquina de casa** (onde vai rodar de verdade): **Ryzen 5 7600X + RTX 5060 Ti** (série 50 / Blackwell).
   - Exige **PyTorch CUDA 12.8+** (versões antigas não reconhecem a placa).
+- **Regra do usuário:** pode usar qualquer ferramenta/modelo, mas **sem login/conta** (nada de Meshy/Mixamo).
 
 ## 5. O que já está PRONTO e TESTADO ✅
 Rodado de ponta a ponta com frames sintéticos (sem GPU/Blender) e validado:
@@ -51,10 +55,15 @@ Rodado de ponta a ponta com frames sintéticos (sem GPU/Blender) e validado:
 - Demo verificada em `output/teste.png|json|tres` (2 anims × 8 direções).
 - **Truque das direções:** só 5 ângulos são renderizados (S, SE, E, NE, N);
   **NW/W/SW são espelhos horizontais** de NE/E/SE (ver `config/default.json`).
+- `src/render_directions.py` — render das 8 direções isométricas. **VALIDADO** nesta
+  máquina (sem GPU) via o módulo **`bpy`** (`pip install bpy`) + motor Workbench,
+  gerando a folha do Fox em 8 direções (walk). Roda como script Python normal
+  (`py src/render_directions.py ...`) OU dentro do Blender.exe.
+- **Teste reproduzível:** `py tests/testar_pipeline.py` (baixa um modelo CC0 e valida tudo).
+- **Passo a passo de instalação em casa:** ver **`INSTALACAO_CASA.md`**.
 
 ## 6. O que está ESCRITO mas NÃO testado ⏳ (precisa da máquina de casa)
-- `src/render_directions.py` — render das 8 direções isométricas no **Blender headless**.
-  Depende de Blender instalado + um modelo 3D animado. **Nunca rodou ainda.**
+- ~~`render_directions.py` nunca rodou~~ → **JÁ VALIDADO** (ver seção 5). Movido para "pronto".
 - `instalar_3d.bat` — cria `venv3d`, instala **PyTorch cu128** e o **TripoSR** (imagem→3D).
   **Não testado em GPU**; a compilação CUDA da série 50 pode falhar e precisar de ajuste.
 - `src/gerar3d.py` — wrapper **imagem→3D** (saída `.obj` p/ Mixamo, `.glb` p/ Blender).
@@ -62,7 +71,10 @@ Rodado de ponta a ponta com frames sintéticos (sem GPU/Blender) e validado:
 
 ## 7. Como rodar (resumo)
 ```bash
-# pipeline principal a partir de um modelo 3D animado (precisa de Blender):
+# instalar dependencias (inclui bpy = Blender via pip, sem app/admin):
+py -m pip install -r requirements.txt
+
+# pipeline principal a partir de um modelo 3D animado (usa o modulo bpy):
 py criar.py input/hero.glb
 
 # a partir de frames já renderizados (NÃO precisa de Blender):

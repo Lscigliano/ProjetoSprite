@@ -22,10 +22,10 @@ com qualidade/consistência de MMO. O 3D é o que garante o mesmo personagem em 
 ## Uso (o comando único)
 
 ```bash
-# a partir de um modelo 3D animado (precisa do Blender instalado):
+# a partir de um modelo 3D animado (usa o módulo bpy, instalado via requirements):
 py criar.py input/hero.glb
 
-# a partir de frames já renderizados (NÃO precisa do Blender):
+# a partir de frames já renderizados:
 py criar.py work/hero/render --name hero
 ```
 
@@ -52,8 +52,13 @@ Saída em `output/`:
 
 ## Requisitos
 
-- **Python 3.13+** com `Pillow` e `numpy` (`py -m pip install Pillow numpy`)
-- **Blender** (só para o passo de render 3D) — https://www.blender.org/download/
+- **Python 3.13+**
+- `py -m pip install -r requirements.txt` — inclui **`bpy`** (Blender via pip): o render
+  roda **dentro do Python**, sem precisar instalar o app Blender nem ser admin
+  (funciona até em máquina com AppLocker corporativo).
+
+Instalação completa em casa (com GPU, para a geração de arte por IA):
+ver **[INSTALACAO_CASA.md](INSTALACAO_CASA.md)**. Teste rápido: `py tests/testar_pipeline.py`.
 
 ## Como funciona por dentro
 

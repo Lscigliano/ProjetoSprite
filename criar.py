@@ -54,15 +54,36 @@ def find_blender(explicit: str | None) -> str | None:
     return None
 
 
-def run_render(model: Path, out_dir: Path, config_path: Path, blender: str, resolution: int) -> None:
-    cmd = [
-        blender, "--background", "--python", str(ROOT / "src" / "render_directions.py"), "--",
-        "--model", str(model),
-        "--out", str(out_dir),
-        "--config", str(config_path),
-        "--resolution", str(resolution),
-    ]
-    print(f"[criar] rodando Blender: {' '.join(cmd)}")
+def _has_bpy() -> bool:
+    import importlib.util
+    return importlib.util.find_spec("bpy") is not None
+
+
+def run_render(model: Path, out_dir: Path, config_path: Path, resolution: int,
+               engine: str | None = None, blender: str | None = None) -> None:
+    render_script = ROOT / "src" / "render_directions.py"
+    base = ["--model", str(model), "--out", str(out_dir),
+            "--config", str(config_path), "--resolution", str(resolution)]
+    if engine:
+        base += ["--engine", engine]
+
+    if _has_bpy():
+        # Blender como MODULO Python (pip install bpy): nao precisa do app,
+        # nem de admin -- roda mesmo em maquina com AppLocker.
+        cmd = [sys.executable, str(render_script)] + base
+        print("[criar] render via modulo bpy (pip install bpy)")
+    else:
+        exe = find_blender(blender)
+        if not exe:
+            print(
+                "\n[criar] ERRO: nem o modulo 'bpy' nem o Blender.exe foram encontrados.\n"
+                "  Opcao A (recomendada): py -m pip install bpy\n"
+                "  Opcao B: instale o Blender e passe --blender \"C:/.../blender.exe\".",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        cmd = [exe, "--background", "--python", str(render_script), "--"] + base
+        print(f"[criar] render via Blender.exe: {exe}")
     subprocess.run(cmd, check=True)
 
 
@@ -115,6 +136,7 @@ def main() -> None:
     ap.add_argument("--config", type=Path, default=ROOT / "config" / "default.json")
     ap.add_argument("--blender", default=None, help="caminho do blender.exe (se nao estiver no PATH)")
     ap.add_argument("--resolution", type=int, default=512, help="resolucao do render antes de pixelizar")
+    ap.add_argument("--engine", default=None, help="motor Blender (EEVEE/CYCLES/WORKBENCH); auto se vazio")
     ap.add_argument("--image-res", default=None, help='caminho da imagem no Godot (ex.: "res://sprites/hero.png")')
     args = ap.parse_args()
 
@@ -126,19 +148,8 @@ def main() -> None:
 
     # 1. obter os frames renderizados (nas direcoes nao-espelhadas)
     if entrada.is_file() and entrada.suffix.lower() in MODEL_EXTS:
-        blender = find_blender(args.blender)
-        if not blender:
-            print(
-                "\n[criar] ERRO: Blender nao encontrado.\n"
-                "  O passo de render 3D precisa do Blender instalado.\n"
-                "  Baixe em https://www.blender.org/download/ e rode de novo,\n"
-                "  ou informe o caminho com --blender \"C:/.../blender.exe\".\n"
-                "  (Se voce ja tem os frames prontos, aponte para a pasta deles em vez do modelo.)",
-                file=sys.stderr,
-            )
-            sys.exit(2)
         render_dir = work / "render"
-        run_render(entrada, render_dir, args.config, blender, args.resolution)
+        run_render(entrada, render_dir, args.config, args.resolution, args.engine, args.blender)
     elif entrada.is_dir():
         render_dir = entrada
         print(f"[criar] usando frames existentes de {render_dir} (sem Blender)")
