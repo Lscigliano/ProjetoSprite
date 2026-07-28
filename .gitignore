@@ -1,8 +1,12 @@
 # ambientes / dependencias
 venv3d/
+venv_bpy/
 venv/
 __pycache__/
 *.pyc
+
+# imagens de entrada de teste (locais, nao versionadas)
+input/
 
 # codigo de terceiros clonado pelo instalador
 third_party/

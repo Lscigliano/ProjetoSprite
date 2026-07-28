@@ -52,6 +52,7 @@ def _import_model(bpy, path: Path):
     ext = path.suffix.lower()
     if ext in (".glb", ".gltf"):
         bpy.ops.import_scene.gltf(filepath=str(path))
+        _remove_gltf_joint_placeholders(bpy)
     elif ext == ".fbx":
         bpy.ops.import_scene.fbx(filepath=str(path))
     elif ext == ".obj":
@@ -60,8 +61,22 @@ def _import_model(bpy, path: Path):
         raise SystemExit(f"[render] formato nao suportado: {ext}")
 
 
+def _remove_gltf_joint_placeholders(bpy):
+    """O importador glTF do Blender cria um mesh 'Icosphere' generico (~2x2x2
+    unidades) como widget visual quando o armature nao tem custom shapes
+    definidos (nosso caso: rig manual sem widgets). E so cosmetico na UI, mas
+    infla MUITO a bounding box (bug real ja causou personagem minusculo na
+    celula do sprite -- o Icosphere e maior que o proprio mesh do personagem).
+    Sem vertex groups/parent: nunca e o mesh real, seguro remover sempre."""
+    for obj in list(bpy.data.objects):
+        if obj.name == "Icosphere" and obj.type == "MESH" and len(obj.vertex_groups) == 0:
+            bpy.data.objects.remove(obj, do_unlink=True)
+
+
 def _scene_bounds(bpy):
-    """Retorna (centro, altura) aproximados dos objetos de malha."""
+    """Retorna (centro, altura, raio_horizontal) aproximados dos objetos de malha.
+    raio_horizontal = maior extensao em X ou Y (usado para calcular o enquadramento
+    real da camera top-down, onde o personagem gira em Z durante o render)."""
     from mathutils import Vector
     mins = Vector((1e9, 1e9, 1e9))
     maxs = Vector((-1e9, -1e9, -1e9))
@@ -75,17 +90,25 @@ def _scene_bounds(bpy):
                 maxs[i] = max(maxs[i], world[i])
     center = (mins + maxs) / 2.0
     height = maxs[2] - mins[2]
-    return center, height
+    horizontal_radius = max(maxs[0] - mins[0], maxs[1] - mins[1]) / 2.0
+    return center, height, horizontal_radius
 
 
-def _setup_camera(bpy, center, height, elevation_deg, ortho):
+def _setup_camera(bpy, center, height, horizontal_radius, elevation_deg, ortho):
     from mathutils import Vector
     import math as m
 
     cam_data = bpy.data.cameras.new("SpriteCam")
     cam_data.type = "ORTHO" if ortho else "PERSP"
     if ortho:
-        cam_data.ortho_scale = height * 1.4 if height > 0 else 2.0
+        # Altura APARENTE na tela: numa camera top-down inclinada (elevation_deg), a
+        # extensao vertical projetada e height*sin(elev) + 2*horizontal_radius*cos(elev)
+        # (o personagem gira em Z durante o render, entao qualquer lado horizontal pode
+        # ficar de frente pra camera -- usa o raio, nao so a profundidade parada).
+        # Margem pequena (1.15) so pra nao cortar por arredondamento/pose extrema.
+        elev = m.radians(elevation_deg)
+        apparent_height = height * m.sin(elev) + 2 * horizontal_radius * m.cos(elev)
+        cam_data.ortho_scale = apparent_height * 1.15 if apparent_height > 0 else 2.0
     cam = bpy.data.objects.new("SpriteCam", cam_data)
     bpy.context.scene.collection.objects.link(cam)
 
@@ -188,9 +211,9 @@ def main():
     _clean_scene(bpy)
     _import_model(bpy, Path(args.model))
 
-    center, height = _scene_bounds(bpy)
+    center, height, horizontal_radius = _scene_bounds(bpy)
     elev = args.elevation if args.elevation is not None else config["camera"]["elevation_deg"]
-    _setup_camera(bpy, center, height, elev, config["camera"]["orthographic"])
+    _setup_camera(bpy, center, height, horizontal_radius, elev, config["camera"]["orthographic"])
     _setup_lighting(bpy, center, height)
     engine = args.engine or config.get("render", {}).get("engine")
     _setup_render(bpy, args.resolution, engine)

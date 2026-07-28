@@ -16,27 +16,88 @@
 `py criar.py <TEXTO | imagem.png | modelo.glb | pasta_de_frames> [--size 64] [--elevation 45]`
 → detecta a entrada e roda as 5 fases → `output/<nome>.png/.json/_frames.tres`.
 
-**Fases:** 1) texto→imagem (SD local) · 2) imagem→3D (TripoSR) · 3) rig+animações (UniRig)
-· 4) render 8 direções (Blender via `bpy`) · 5) pixeliza→folha→Godot.
+**Fases:** 1) texto→imagem (SD local) · 2) imagem→3D (TripoSR) · 3) rig+animações
+(esqueleto simples + poses codificadas, ver seção "Fase 3" abaixo) · 4) render 8 direções
+(Blender via `bpy`) · 5) pixeliza→folha→Godot.
 
-**Pronto e TESTADO na máquina de casa (RTX 5060 Ti), sessão 2026-07-27:**
-- Fases **4 e 5** (render 8 dir + folha + `.tres` Godot) — `py tests/testar_pipeline.py` passa,
-  agora com `bpy` REAL (Blender 5.2.0 LTS), não só simulado como na sessão anterior.
-- Fase **2** (imagem→3D, TripoSR) — **VALIDADA de ponta a ponta**: `gerar3d.py` gera `.obj`+`.glb`
-  reais a partir de uma imagem (testado com `third_party/TripoSR/examples/poly_fox.png`).
-  `torch.cuda.is_available() == True`, inferência na GPU (~2s), extração de mesh via
-  `torchmcubes` compilado com CUDA real (~1.5s).
-- Câmera 45° (estilo RO), ajustável por `--elevation` (45–60). Workbench já sai com textura/cor.
-- Ações no `config`: idle, walk, attack, sit, hurt, dead × 8 direções.
+**MARCO — sessão 2026-07-27 (2ª parte): pipeline COMPLETO funcionando de ponta a ponta
+pela 1ª vez.** `py criar.py input/<imagem_chibi_pose_A>.png` → `output/<nome>.png` com
+**345 frames reais** (6 animações × ~8 direções) numa imagem de personagem chibi de
+verdade (armadura, pose A, fundo claro — seguindo os requisitos da seção 3). Todas as 5
+fases rodaram numa única invocação, sem intervenção manual.
 
-**AINDA escrito mas NÃO testado:**
-- `src/gerar_concept.py` (Fase 1, Stable Diffusion) — scaffold, ajustar checkpoint. Não mexido
-  nesta sessão (foco foi Fase 2).
-- `src/rig.py` (Fase 3, UniRig) — **o gargalo aberto, ainda não atacado**: o auto-rig é chamada
-  externa a confirmar no README do UniRig, e o **retargeting das animações mocap ainda NÃO foi
-  resolvido**. Confirmado nesta sessão: um `.glb` do TripoSR não tem nenhuma `Action`
-  (idle/walk/etc.) — é só geometria estática — então a Fase 4 roda mas não renderiza nada até
-  a Fase 3 existir de verdade.
+**Pronto e TESTADO na máquina de casa (RTX 5060 Ti):**
+- Fases **1(pulada)–2–3–4–5 completas**: `criar.py input/foto.glb` cobre 4-5 sempre;
+  com uma **imagem** de entrada, cobre 2-3-4-5 também (Fase 1/texto segue não testada).
+- Fase **2** (imagem→3D, TripoSR) — inferência na GPU (~2-4s por imagem), extração de mesh
+  via `torchmcubes` compilado com CUDA real.
+- Fase **3** (`src/rig.py`) — **reescrita do zero nesta sessão, funcionando**. Ver seção
+  dedicada abaixo — **UniRig e Rigify foram ambos tentados e abandonados**, com os motivos
+  documentados, para não repetir a investigação.
+- Fases **4 e 5** — render 8 dir + folha + `.tres` Godot, com `bpy` REAL (Blender 5.2.0 LTS).
+
+### Fase 3 (rig + animações) — como funciona hoje, e o que NÃO funcionou
+
+**UniRig: abandonado.** Assume Linux + compilação CUDA nativa frágil (`spconv` sem build
+pra CUDA 12.8/13 — issue aberta sem resposta no repo oficial upstream). Mesmo se
+compilasse, não faz retargeting de animação — só gera esqueleto+skin.
+
+**Rigify (addon nativo do Blender): tentado a fundo, abandonado.** O auto-rig
+(`rigify.metarigs.human.create()` + `bpy.ops.pose.rigify_generate()`) funciona 100%
+headless. O **skinning automático também funciona** (`ARMATURE_AUTO` ou
+`ARMATURE_ENVELOPE`, pesos reais confirmados nos vertex groups). O problema real: as
+constraints `Copy Transforms` que o Rigify usa pra propagar a pose dos controles
+(FK/IK) até os ossos de deformação `DEF-*` têm a `influence` controlada por **drivers**
+— e esses drivers **não recalculam em modo `--background`** (confirmado com 6+
+abordagens diferentes: `depsgraph.update()`, `frame_set`, `view_layer.update()`,
+reavaliação manual do driver + escrita forçada na propriedade — nada propaga a pose
+inteira até o `DEF-`, mesmo confirmando que os ossos individuais movem corretamente).
+Não vale reabrir essa investigação sem uma pista nova (ex.: rodar SEM `--background`,
+com janela oculta, é a única rota não testada).
+
+**Solução adotada, funcionando:** esqueleto humanoide **simples e manual** (19 ossos:
+pelvis/spine/chest/neck/head, braços e pernas com 3-4 ossos cada, SEM camadas de
+controle IK/FK/tweak), construído por `_build_simple_humanoid()` em `src/rig.py`,
+escalado e posicionado automaticamente pelo **bounding-box** do mesh (frações fixas da
+altura total — calibradas pra proporção chibi: cabeça = 30% da altura). Skinning via
+`ARMATURE_AUTO`. Animações (`idle`, `walk`, `attack`, `sit`, `hurt`, `dead`) são
+**poses-chave codificadas a mão** via `keyframe_insert` direto nos ossos de deformação
+(não mocap/retarget) — decisão consciente pra evitar depender de uma biblioteca externa
+de animação e do problema de retargeting entre esqueletos diferentes. Resultado é mais
+"jogo indie" que mocap realista, mas é 100% confiável e roda headless sem workarounds.
+
+**Bug real também corrigido nesta sessão:** o `.glb` que o TripoSR exporta vem **deitado**
+(não Z-up) — o objeto pai (`Empty`) usa `rotation_mode='QUATERNION'`, então setar
+`rotation_euler` nele é um no-op silencioso (armadilha real, gastou bastante tempo de
+depuração). Fix em `_normalize_triposr_orientation()`: aplicar
+`Quaternion((0,0,1), 90°) @ Quaternion((1,0,0), -90°)` via `rotation_quaternion` no
+objeto pai antes de "achatar" a transformação no mesh. Confirmado consistente em 2
+modelos diferentes (personagem chibi + raposa de exemplo do TripoSR).
+
+**Arquitetura de venvs (importante, já corrigida em `criar.py`):** `src/rig.py` agora só
+precisa de `bpy` (não de GPU/torch), então `criar.py.run_rig()` chama o Python do
+**`venv_bpy`** (3.13), não do `venv3d` (3.12, onde fica o TripoSR) — são dois venvs
+diferentes por causa da versão de Python exigida por cada wheel.
+
+**Bug real corrigido (personagem minúsculo na célula do sprite):** toda vez que o
+Blender **reimporta** um `.glb` com armature sem custom shapes de bone (nosso caso — rig
+manual, sem widgets), ele cria automaticamente um objeto `Icosphere` genérico (~2×2×2
+unidades) como placeholder visual — **maior que o próprio personagem** (que tem ~1m de
+altura). Esse objeto poluía o cálculo de bounding-box em `render_directions.py`
+(`_scene_bounds`), fazendo a câmera se afastar demais → personagem pequeno na célula.
+**Não está no `.glb` salvo** (confirmado inspecionando o JSON chunk cru do arquivo) — só
+aparece a cada reimportação, então qualquer script que reabra o `.glb` precisa filtrar.
+Fix: `_remove_gltf_joint_placeholders()` em `render_directions.py`, chamado logo após
+`bpy.ops.import_scene.gltf`, remove objetos `MESH` chamados exatamente `"Icosphere"` sem
+vertex groups (nunca é o mesh real do personagem).
+
+Aproveitado para também corrigir o cálculo de `ortho_scale` da câmera (`_setup_camera`):
+antes usava só a altura Z do personagem; agora calcula a altura **aparente na tela**
+considerando a elevação de 45° E a extensão horizontal (já que o personagem gira em Z
+durante o render — qualquer lado pode ficar de frente pra câmera). Fórmula:
+`altura_aparente = altura*sin(elev) + 2*raio_horizontal*cos(elev)`, com 15% de margem.
+Validado por simulação numérica da projeção real em todos os azimutes (erro <3% vs a
+fórmula fechada) — ver histórico do commit se precisar re-derivar.
 
 ### Setup de ambiente desta máquina (casa) — registrar p/ não repetir a depuração
 

@@ -75,6 +75,11 @@ def venv3d_python() -> Path | None:
     return p if p.exists() else None
 
 
+def venv_bpy_python() -> Path | None:
+    p = ROOT / "venv_bpy" / "Scripts" / "python.exe"
+    return p if p.exists() else None
+
+
 def _erro_gpu(fase: str) -> None:
     print(
         f"\n[criar] A fase '{fase}' precisa da GPU (ambiente venv3d), que nao existe aqui.\n"
@@ -116,9 +121,14 @@ def run_gerar3d(image: Path, out_glb: Path) -> None:
 
 
 def run_rig(model_in: Path, out_glb: Path, config_path: Path) -> None:
-    py = venv3d_python()
+    # rig.py usa bpy (rig manual + skin + animacoes), nao GPU/torch -> roda no venv_bpy,
+    # nao no venv3d (que so tem torch/TripoSR, sem bpy: wheel de bpy so existe p/ Python 3.13).
+    py = venv_bpy_python()
     if not py:
-        _erro_gpu("3: rig + animacoes (UniRig)")
+        raise SystemExit(
+            "\n[criar] A fase '3: rig + animacoes' precisa do venv_bpy (Python 3.13 + bpy), que nao existe aqui.\n"
+            "  -> py -3.13 -m venv venv_bpy && venv_bpy\\Scripts\\python -m pip install -r requirements.txt"
+        )
     out_glb.parent.mkdir(parents=True, exist_ok=True)
     print(f"[criar] Fase 3: rig + animacoes -> {out_glb.name}")
     subprocess.run(
