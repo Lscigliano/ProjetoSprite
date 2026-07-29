@@ -71,17 +71,25 @@ def _mesh_bounds(mesh_obj):
     return min_co, max_co
 
 
+def _body_geometry(mesh_obj):
+    """Medidas do corpo derivadas do bounding-box, usadas tanto pro esqueleto
+    (_build_simple_humanoid) quanto pra posicionar acessorios (_add_bow_geometry)
+    com a MESMA referencia -- evita formulas duplicadas divergindo com o tempo."""
+    min_co, max_co = _mesh_bounds(mesh_obj)
+    height = max_co.z - min_co.z
+    z0 = min_co.z
+    cx, cy = (min_co.x + max_co.x) / 2, (min_co.y + max_co.y) / 2
+    half_width = (max_co.x - min_co.x) / 2
+    return cx, cy, z0, height, half_width
+
+
 def _build_simple_humanoid(bpy, mesh_obj):
     """Cria um armature humanoide de 19 ossos, escalado/posicionado pelo
     bounding-box do mesh. Posicoes em fracao da altura (0=pes, 1=topo da
     cabeca) -- calibrado para a proporcao chibi que os requisitos de arte
     do projeto pedem (cabeca grande), ver DESIGN.md / HANDOFF.md.
     """
-    min_co, max_co = _mesh_bounds(mesh_obj)
-    height = max_co.z - min_co.z
-    z0 = min_co.z
-    cx, cy = (min_co.x + max_co.x) / 2, (min_co.y + max_co.y) / 2
-    half_width = (max_co.x - min_co.x) / 2
+    cx, cy, z0, height, half_width = _body_geometry(mesh_obj)
 
     def z(frac: float) -> float:
         return z0 + frac * height
@@ -127,11 +135,18 @@ def _build_simple_humanoid(bpy, mesh_obj):
 
 
 def _skin(bpy, mesh_obj, rig):
+    """ARMATURE_ENVELOPE (baseado em distancia/envelope) em vez de
+    ARMATURE_AUTO (Bone Heat, baseado em difusao de calor pela malha):
+    o Bone Heat falha silenciosamente e de forma intermitente nas malhas
+    do TripoSR (warning "failed to find solution for one or more bones",
+    produzindo deformacao quebrada ou ate export sem skin nenhum). Envelope
+    e mais tolerante a geometria imperfeita e deu resultado consistente em
+    todos os testes desta sessao."""
     bpy.ops.object.select_all(action="DESELECT")
     mesh_obj.select_set(True)
     rig.select_set(True)
     bpy.context.view_layer.objects.active = rig
-    bpy.ops.object.parent_set(type="ARMATURE_AUTO")
+    bpy.ops.object.parent_set(type="ARMATURE_ENVELOPE")
 
 
 def _new_action(bpy, rig, name: str):
@@ -149,10 +164,13 @@ def _reset_pose(bpy):
     bpy.ops.pose.loc_clear()
 
 
-def _apply_animations(bpy, rig):
+def _apply_animations(bpy, rig, classe: str = "guerreiro"):
     """Kit padrao MMO 2D (ver config/default.json): idle, walk, attack, sit,
     hurt, dead. Poses-chave codificadas a mao (nao mocap) -- ver HANDOFF.md
-    para o porque dessa escolha."""
+    para o porque dessa escolha.
+
+    A pose de "attack" muda por classe (guerreiro/mago/arqueiro) -- as
+    outras 5 animacoes sao compartilhadas, ja que nao dependem de arma."""
 
     def key(pb_name, frame, euler_deg):
         pb = rig.pose.bones[pb_name]
@@ -185,14 +203,56 @@ def _apply_animations(bpy, rig):
 
     _reset_pose(bpy)
     _new_action(bpy, rig, "attack")
-    key("upper_arm.R", 1, (0, 0, 0))
-    key("forearm.R", 1, (0, 0, 0))
-    key("upper_arm.R", 4, (60, 0, -20))
-    key("forearm.R", 4, (40, 0, 0))
-    key("upper_arm.R", 8, (-70, 0, 30))
-    key("forearm.R", 8, (-20, 0, 0))
-    key("upper_arm.R", 12, (0, 0, 0))
-    key("forearm.R", 12, (0, 0, 0))
+    if classe == "arqueiro":
+        # tiro de arco: braco esquerdo (L) sustenta o arco esticado pra
+        # frente e parado (segura o arco, ver _add_bow_geometry), braco
+        # direito (R) puxa a corda ate o ombro (frames 1-6) e solta (10).
+        key("upper_arm.L", 1, (0, 0, -75))
+        key("forearm.L", 1, (0, 0, 0))
+        key("upper_arm.R", 1, (0, 0, 0))
+        key("forearm.R", 1, (0, 0, 0))
+        key("upper_arm.L", 6, (0, 0, -75))
+        key("forearm.L", 6, (0, 0, 0))
+        key("upper_arm.R", 6, (10, 0, -55))
+        key("forearm.R", 6, (110, 0, 0))
+        key("upper_arm.L", 10, (0, 0, -75))
+        key("forearm.L", 10, (0, 0, 0))
+        key("upper_arm.R", 10, (-10, 0, -20))
+        key("forearm.R", 10, (20, 0, 0))
+        key("upper_arm.L", 12, (0, 0, 0))
+        key("forearm.L", 12, (0, 0, 0))
+        key("upper_arm.R", 12, (0, 0, 0))
+        key("forearm.R", 12, (0, 0, 0))
+    elif classe == "mago":
+        # conjuracao: os dois bracos sobem e se aproximam na frente do
+        # peito (gesto de "canalizar"), com um pico de tensao no meio.
+        key("upper_arm.L", 1, (0, 0, 0))
+        key("upper_arm.R", 1, (0, 0, 0))
+        key("forearm.L", 1, (0, 0, 0))
+        key("forearm.R", 1, (0, 0, 0))
+        key("upper_arm.L", 5, (-60, 0, -40))
+        key("upper_arm.R", 5, (-60, 0, 40))
+        key("forearm.L", 5, (60, 0, 0))
+        key("forearm.R", 5, (60, 0, 0))
+        key("chest", 5, (-6, 0, 0))
+        key("upper_arm.L", 9, (-70, 0, -30))
+        key("upper_arm.R", 9, (-70, 0, 30))
+        key("forearm.L", 9, (70, 0, 0))
+        key("forearm.R", 9, (70, 0, 0))
+        key("chest", 9, (0, 0, 0))
+        key("upper_arm.L", 12, (0, 0, 0))
+        key("upper_arm.R", 12, (0, 0, 0))
+        key("forearm.L", 12, (0, 0, 0))
+        key("forearm.R", 12, (0, 0, 0))
+    else:  # "guerreiro" (padrao): golpe generico de braco/arma corpo-a-corpo
+        key("upper_arm.R", 1, (0, 0, 0))
+        key("forearm.R", 1, (0, 0, 0))
+        key("upper_arm.R", 4, (60, 0, -20))
+        key("forearm.R", 4, (40, 0, 0))
+        key("upper_arm.R", 8, (-70, 0, 30))
+        key("forearm.R", 8, (-20, 0, 0))
+        key("upper_arm.R", 12, (0, 0, 0))
+        key("forearm.R", 12, (0, 0, 0))
 
     _reset_pose(bpy)
     _new_action(bpy, rig, "sit")
@@ -234,16 +294,85 @@ def _apply_animations(bpy, rig):
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
-def build_rig(bpy, model_in: Path, out_glb: Path) -> None:
+def _add_bow_geometry(bpy, mesh_obj):
+    """Cria um arco simples (curva bezier convertida em malha) posicionado
+    na mao esquerda (mesma formula de posicao usada em _build_simple_humanoid
+    pra hand.L) e FUNDE com o mesh do personagem, ANTES do skinning.
+
+    Por que fundir em vez de parentear como objeto separado: o parenting
+    osso-a-objeto (`parent_set(type="BONE")`) se mostrou bugado nesta sessao
+    -- a matriz calculada nao correspondia a posicao real do osso mesmo com
+    os dados de entrada corretos (nao foi possivel isolar a causa). Fundindo
+    o arco ANTES do skin, ele ganha peso de vertice automaticamente pelo
+    ARMATURE_ENVELOPE (mesmo mecanismo que ja deforma o resto do corpo
+    corretamente) -- sem parenting manual, sem matrizes.
+    """
+    cx, cy, z0, height, half_width = _body_geometry(mesh_obj)
+    z_hand = z0 + 0.55 * height  # mesma fracao de hand.L em _build_simple_humanoid
+    hand_x = cx + half_width * 0.95 * 1.05  # um pouco alem da mao (punho fechado)
+
+    curve_data = bpy.data.curves.new("BowCurve", type="CURVE")
+    curve_data.dimensions = "3D"
+    curve_data.bevel_depth = height * 0.008
+    curve_data.resolution_u = 12
+    spline = curve_data.splines.new("BEZIER")
+    spline.bezier_points.add(2)  # total 3 pontos: base, meio (curvatura), topo
+
+    bow_len = height * 0.35
+    bow_bend = height * 0.06
+    # arco na vertical (eixo Z mundial), "barriga" curvando no eixo Y
+    pts = [
+        (hand_x, cy, z_hand - bow_len / 2),
+        (hand_x - bow_bend, cy, z_hand),
+        (hand_x, cy, z_hand + bow_len / 2),
+    ]
+    for i, p in enumerate(pts):
+        bp = spline.bezier_points[i]
+        bp.co = p
+        bp.handle_left_type = bp.handle_right_type = "AUTO"
+
+    bow_obj = bpy.data.objects.new("Bow", curve_data)
+    bpy.context.collection.objects.link(bow_obj)
+
+    # converte curva -> malha (join so funciona entre meshes, nao curva+mesh)
+    bpy.context.view_layer.objects.active = bow_obj
+    bpy.ops.object.select_all(action="DESELECT")
+    bow_obj.select_set(True)
+    bpy.ops.object.convert(target="MESH")
+
+    mat = bpy.data.materials.new("BowMaterial")
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    bsdf.inputs["Base Color"].default_value = (0.30, 0.18, 0.08, 1.0)  # marrom madeira
+    bow_obj.data.materials.append(mat)
+
+    # funde no mesh do personagem (join real: geometria unificada num so
+    # objeto/mesh, herda skin automaticamente depois)
+    bpy.ops.object.select_all(action="DESELECT")
+    bow_obj.select_set(True)
+    mesh_obj.select_set(True)
+    bpy.context.view_layer.objects.active = mesh_obj
+    bpy.ops.object.join()
+    return mesh_obj
+
+
+def build_rig(bpy, model_in: Path, out_glb: Path, classe: str = "guerreiro") -> None:
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=str(model_in))
 
     mesh_obj = next(o for o in bpy.data.objects if o.type == "MESH")
     _normalize_triposr_orientation(bpy, mesh_obj)
 
+    # o arco precisa ser fundido ANTES do rig+skin: a geometria calcula sua
+    # posicao pelo bounding-box do mesh (mesma referencia do esqueleto), e
+    # so entao o ARMATURE_ENVELOPE (chamado por _skin) da peso de vertice
+    # pro arco automaticamente, junto com o resto do corpo.
+    if classe == "arqueiro":
+        mesh_obj = _add_bow_geometry(bpy, mesh_obj)
+
     rig = _build_simple_humanoid(bpy, mesh_obj)
     _skin(bpy, mesh_obj, rig)
-    _apply_animations(bpy, rig)
+    _apply_animations(bpy, rig, classe=classe)
 
     out_glb.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.object.select_all(action="SELECT")
@@ -261,6 +390,8 @@ def main() -> None:
     ap.add_argument("--input", required=True, type=Path, help="modelo 3D (.glb) do gerar3d")
     ap.add_argument("--out", required=True, type=Path, help=".glb animado de saida")
     ap.add_argument("--config", type=Path, default=ROOT / "config" / "default.json")
+    ap.add_argument("--classe", default="guerreiro", choices=["guerreiro", "mago", "arqueiro"],
+                     help="muda a pose de 'attack' e acessorios (arqueiro ganha um arco na mao)")
     args = ap.parse_args()
 
     try:
@@ -272,7 +403,7 @@ def main() -> None:
         )
     import bpy
 
-    build_rig(bpy, args.input, args.out)
+    build_rig(bpy, args.input, args.out, classe=args.classe)
     print(f"[rig] PRONTO: {args.out}")
     print("[rig] animacoes: idle, walk, attack, sit, hurt, dead (poses codificadas, nao mocap)")
 

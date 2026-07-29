@@ -13,8 +13,9 @@
 **spritesheets 8 direções** (estilo **Ragnarok Online**) pro **Godot 4**. Alvo: MMO 2D isométrico.
 
 **Como usar (um comando, 4 tipos de entrada):**
-`py criar.py <TEXTO | imagem.png | modelo.glb | pasta_de_frames> [--size 64] [--elevation 45]`
+`py criar.py <TEXTO | imagem.png | modelo.glb | pasta_de_frames> [--size 64] [--elevation 45] [--classe guerreiro|mago|arqueiro]`
 → detecta a entrada e roda as 5 fases → `output/<nome>.png/.json/_frames.tres`.
+`--classe` muda a pose de "attack" (arqueiro ganha um arco 3D na mão) — ver seção dedicada.
 
 **Fases:** 1) texto→imagem (SD local) · 2) imagem→3D (TripoSR) · 3) rig+animações
 (esqueleto simples + poses codificadas, ver seção "Fase 3" abaixo) · 4) render 8 direções
@@ -136,6 +137,39 @@ reimport funciona normal, às vezes não, com o mesmo código. **Mitigação def
 recria o `Color Attribute` + material manualmente. Roda em ~1ms mesmo quando não é
 necessária (early-return se `color_attributes` já existir), então é seguro deixar sempre
 ativa. Se um dia esse bug do Blender for corrigido upstream, essa função vira no-op.
+
+### Sistema de classes (`--classe guerreiro|mago|arqueiro`) — pedido do dono
+
+`criar.py --classe <nome>` (default `guerreiro`) muda a pose da animação `attack` — as
+outras 5 (idle/walk/sit/hurt/dead) são compartilhadas entre classes, já que não dependem
+de arma. Implementado em `_apply_animations(bpy, rig, classe=...)` em `src/rig.py`:
+- **guerreiro** (padrão): golpe genérico de braço direito, recua e avança.
+- **mago**: os dois braços sobem e se aproximam na frente do peito (gesto de "canalizar"),
+  sem nenhum objeto anexado — a "arma" de um mago é visual/efeito, não modelo 3D por ora.
+- **arqueiro**: braço esquerdo sustenta um arco parado e esticado pra frente, braço
+  direito puxa a corda até o ombro e solta. **Só essa classe ganha um objeto 3D real**
+  (um arco simples, ver abaixo).
+
+**Arco do arqueiro — como funciona e o que ficou pendente:**
+`_add_bow_geometry()` cria um arco (curva bezier convertida em malha, ~35% da altura do
+personagem, curvatura leve) posicionado na MESMA fórmula de coordenadas que
+`_build_simple_humanoid` usa pra `hand.L` (`_body_geometry()` foi extraída como função
+compartilhada pra garantir isso). Chamado **antes** do rig+skin em `build_rig()`, o arco é
+**fundido (`bpy.ops.object.join()`) na malha do personagem**, não parenteado como objeto
+separado — decisão forçada por um bug real: `bpy.ops.object.parent_set(type="BONE")`
+calculava uma `matrix_parent_inverse` que não correspondia à posição real do osso (a
+malha do arco terminava sempre perto da origem do mundo, não na mão), e não foi possível
+isolar a causa raiz mesmo depurando passo a passo (matrizes conferidas, contexto/seleção
+confirmados corretos). Fundindo antes do skin, o arco ganha peso de vértice automático
+pelo `ARMATURE_ENVELOPE` — resultado: **o arco agora segue a mão corretamente durante a
+animação** (confirmado visualmente no frame de "puxar a corda").
+
+**Pendência conhecida:** a cor do arco sai parcialmente errada — parte da malha aparece
+marrom (correto) e parte preta. Tentado: pintar um `Color Attribute` próprio no arco antes
+do join (a cor pintada foi confirmada correta em memória em cada etapa: após pintura, após
+join, após skin — mas vira branco/preto após export+reimport, mesmo padrão inconsistente
+do bug de material já documentado acima). Não vale mais tempo agora — funcionalmente o
+arco funciona (segue a mão, aparece, tem forma de arco); é só um acabamento visual.
 
 ### Setup de ambiente desta máquina (casa) — registrar p/ não repetir a depuração
 

@@ -120,7 +120,7 @@ def run_gerar3d(image: Path, out_glb: Path) -> None:
     )
 
 
-def run_rig(model_in: Path, out_glb: Path, config_path: Path) -> None:
+def run_rig(model_in: Path, out_glb: Path, config_path: Path, classe: str | None = None) -> None:
     # rig.py usa bpy (rig manual + skin + animacoes), nao GPU/torch -> roda no venv_bpy,
     # nao no venv3d (que so tem torch/TripoSR, sem bpy: wheel de bpy so existe p/ Python 3.13).
     py = venv_bpy_python()
@@ -130,12 +130,12 @@ def run_rig(model_in: Path, out_glb: Path, config_path: Path) -> None:
             "  -> py -3.13 -m venv venv_bpy && venv_bpy\\Scripts\\python -m pip install -r requirements.txt"
         )
     out_glb.parent.mkdir(parents=True, exist_ok=True)
-    print(f"[criar] Fase 3: rig + animacoes -> {out_glb.name}")
-    subprocess.run(
-        [str(py), str(ROOT / "src" / "rig.py"),
-         "--input", str(model_in), "--out", str(out_glb), "--config", str(config_path)],
-        check=True,
-    )
+    print(f"[criar] Fase 3: rig + animacoes ({classe or 'guerreiro'}) -> {out_glb.name}")
+    cmd = [str(py), str(ROOT / "src" / "rig.py"),
+           "--input", str(model_in), "--out", str(out_glb), "--config", str(config_path)]
+    if classe:
+        cmd += ["--classe", classe]
+    subprocess.run(cmd, check=True)
 
 
 # ----------------------------------------------------------------------------
@@ -244,6 +244,8 @@ def main() -> None:
     ap.add_argument("--engine", default=None, help="motor Blender (EEVEE/CYCLES/WORKBENCH); auto se vazio")
     ap.add_argument("--elevation", type=float, default=None, help="angulo da camera (45-60 = estilo RO); usa o config se vazio")
     ap.add_argument("--image-res", default=None, help='caminho da imagem no Godot (ex.: "res://sprites/hero.png")')
+    ap.add_argument("--classe", default=None, choices=["guerreiro", "mago", "arqueiro"],
+                     help="classe do personagem; muda a pose de ataque e acessorios (arqueiro ganha arco). Padrao: guerreiro (golpe corpo-a-corpo)")
     args = ap.parse_args()
 
     config = json.loads(args.config.read_text(encoding="utf-8"))
@@ -286,7 +288,7 @@ def main() -> None:
         glb = work / "modelo.glb"
         run_gerar3d(image_path, glb)
         animated = work / "animado.glb"
-        run_rig(glb, animated, args.config)
+        run_rig(glb, animated, args.config, classe=args.classe)
         model_path = animated
         kind = "model"
 
