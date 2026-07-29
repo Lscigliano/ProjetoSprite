@@ -53,12 +53,97 @@ def _import_model(bpy, path: Path):
     if ext in (".glb", ".gltf"):
         bpy.ops.import_scene.gltf(filepath=str(path))
         _remove_gltf_joint_placeholders(bpy)
+        if ext == ".glb":
+            _recover_vertex_color_from_glb(bpy, path)
     elif ext == ".fbx":
         bpy.ops.import_scene.fbx(filepath=str(path))
     elif ext == ".obj":
         bpy.ops.wm.obj_import(filepath=str(path))
     else:
         raise SystemExit(f"[render] formato nao suportado: {ext}")
+
+
+def _read_glb_json(path: Path):
+    """Le os chunks JSON e BIN de um .glb (formato binario glTF 2.0), sem
+    depender do bpy -- so struct/json puros."""
+    import struct
+    import json as json_module
+
+    data = path.read_bytes()
+    offset = 12  # header: magic(4) + version(4) + length(4)
+    json_chunk, bin_chunk = None, None
+    while offset < len(data):
+        chunk_len, chunk_type = struct.unpack("<II", data[offset:offset + 8])
+        chunk_data = data[offset + 8:offset + 8 + chunk_len]
+        if chunk_type == 0x4E4F534A:  # b'JSON'
+            json_chunk = json_module.loads(chunk_data)
+        elif chunk_type == 0x004E4942:  # b'BIN\0'
+            bin_chunk = chunk_data
+        offset += 8 + chunk_len
+    return json_chunk, bin_chunk
+
+
+def _recover_vertex_color_from_glb(bpy, path: Path):
+    """Contorna um bug real do importador glTF do Blender 5.2: quando um mesh
+    tem tanto COLOR_0 (vertex color) quanto JOINTS_0/WEIGHTS_0 (skinning), o
+    Blender falha silenciosamente em recriar o Color Attribute + material ao
+    reimportar (confirmado: os dados COLOR_0 EXISTEM corretamente no arquivo
+    .glb, o bug e so na reconstrucao da cena Blender, nao no arquivo).
+
+    Sintoma sem este fix: personagem sai cinza/sem cor em qualquer render
+    (EEVEE, Cycles ou Workbench com color_type=VERTEX), mesmo com boa luz.
+
+    Fix: le o accessor COLOR_0 direto do binario do .glb e recria o Color
+    Attribute + material manualmente no mesh reimportado. So roda se o
+    Blender realmente falhou (mesh sem color_attributes) -- se um dia o bug
+    for corrigido upstream, esta funcao vira no-op."""
+    import struct
+
+    mesh_objs = [o for o in bpy.data.objects if o.type == "MESH"]
+    if not mesh_objs:
+        return
+    mesh_obj = max(mesh_objs, key=lambda o: len(o.data.vertices))
+    if len(mesh_obj.data.color_attributes) > 0:
+        return  # importador funcionou normalmente, nada a fazer
+
+    gltf, bin_data = _read_glb_json(path)
+    if gltf is None or bin_data is None:
+        return
+
+    # acha a primitive do mesh com mais vertices (mesmo criterio do mesh_obj)
+    target_prim = None
+    for m in gltf.get("meshes", []):
+        for prim in m.get("primitives", []):
+            acc = gltf["accessors"][prim["attributes"]["POSITION"]]
+            if acc["count"] == len(mesh_obj.data.vertices) and "COLOR_0" in prim["attributes"]:
+                target_prim = prim
+                break
+        if target_prim:
+            break
+    if target_prim is None:
+        return  # arquivo nao tem COLOR_0 pra esse mesh; nada a recuperar
+
+    acc = gltf["accessors"][target_prim["attributes"]["COLOR_0"]]
+    bv = gltf["bufferViews"][acc["bufferView"]]
+    start = bv.get("byteOffset", 0) + acc.get("byteOffset", 0)
+    comp_size = {"VEC3": 3, "VEC4": 4}[acc["type"]]
+    fmt = f"<{comp_size}f"  # componentType 5126 = FLOAT (unico usado pelo nosso export)
+    stride = struct.calcsize(fmt)
+
+    ca = mesh_obj.data.color_attributes.new(name="Color", type="FLOAT_COLOR", domain="POINT")
+    for i in range(acc["count"]):
+        off = start + i * stride
+        vals = struct.unpack(fmt, bin_data[off:off + stride])
+        ca.data[i].color = (vals[0], vals[1], vals[2], vals[3] if comp_size == 4 else 1.0)
+
+    mat = bpy.data.materials.new("RecoveredColorMaterial")
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    vc_node = mat.node_tree.nodes.new("ShaderNodeVertexColor")
+    vc_node.layer_name = "Color"
+    mat.node_tree.links.new(vc_node.outputs["Color"], bsdf.inputs["Base Color"])
+    mesh_obj.data.materials.append(mat)
+    print(f"[render] cor recuperada manualmente ({acc['count']} vertices) -- bug do importador glTF contornado")
 
 
 def _remove_gltf_joint_placeholders(bpy):
@@ -129,20 +214,35 @@ def _setup_camera(bpy, center, height, horizontal_radius, elevation_deg, ortho):
 
 def _setup_lighting(bpy, center, height):
     """Luz solar fixa (mundo) + ambiente. Fica parada enquanto o modelo gira,
-    dando sombreamento consistente entre as 8 direcoes (padrao isometrico)."""
+    dando sombreamento consistente entre as 8 direcoes (padrao isometrico).
+
+    O TripoSR gera cor via Vertex Color (nao textura de imagem) ligado ao
+    Base Color do material -- fica visivel no Workbench (usa "Studio Light"
+    sempre ligado), mas em EEVEE/Cycles precisa de luz de verdade incidindo
+    pra nao sair escuro/sem graca. Energia calibrada visualmente (0.6 de
+    ambiente deixava a cor quase invisivel em EEVEE)."""
     sun_data = bpy.data.lights.new("SpriteSun", type="SUN")
-    sun_data.energy = 3.0
+    sun_data.energy = 4.0
     sun = bpy.data.objects.new("SpriteSun", sun_data)
     bpy.context.scene.collection.objects.link(sun)
     sun.location = (center[0], center[1], center[2] + max(height, 1.0) * 3)
     sun.rotation_euler = (math.radians(45), 0.0, math.radians(30))
+
+    # 2a luz de preenchimento do lado oposto, pra nao deixar metade do
+    # personagem escura demais enquanto ele gira nas 8 direcoes.
+    fill_data = bpy.data.lights.new("SpriteFill", type="SUN")
+    fill_data.energy = 2.0
+    fill = bpy.data.objects.new("SpriteFill", fill_data)
+    bpy.context.scene.collection.objects.link(fill)
+    fill.location = (center[0], center[1], center[2] + max(height, 1.0) * 3)
+    fill.rotation_euler = (math.radians(45), 0.0, math.radians(30 + 180))
 
     world = bpy.context.scene.world or bpy.data.worlds.new("SpriteWorld")
     bpy.context.scene.world = world
     world.use_nodes = True
     bg = world.node_tree.nodes.get("Background")
     if bg:
-        bg.inputs[1].default_value = 0.6  # forca da luz ambiente
+        bg.inputs[1].default_value = 1.2  # forca da luz ambiente
 
 
 def _setup_render(bpy, resolution, engine=None):
@@ -172,6 +272,12 @@ def _setup_render(bpy, resolution, engine=None):
         # mostra a TEXTURA do modelo (senao sai cinza) + luz de estudio
         scene.display.shading.light = "STUDIO"
         scene.display.shading.color_type = "TEXTURE"
+
+    # AgX (color management padrao do Blender 4+/5) dessatura MUITO as cores
+    # de vertex color do TripoSR -- personagem saia cinza/lavado em EEVEE e
+    # Cycles mesmo com boa iluminacao (bug real ja depurado). "Standard" e
+    # o view transform classico (sem tonemapping), preserva a cor de verdade.
+    scene.view_settings.view_transform = "Standard"
 
     scene.render.resolution_x = resolution
     scene.render.resolution_y = resolution

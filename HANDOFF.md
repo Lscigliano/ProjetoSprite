@@ -99,6 +99,44 @@ durante o render — qualquer lado pode ficar de frente pra câmera). Fórmula:
 Validado por simulação numérica da projeção real em todos os azimutes (erro <3% vs a
 fórmula fechada) — ver histórico do commit se precisar re-derivar.
 
+### Bug real (personagem saía cinza/sem cor) — 2 causas empilhadas, ambas corrigidas
+
+Depois do checkpoint acima, o usuário notou o personagem gerado saindo **cinza**, sem a
+cor real da imagem de origem (roupa verde, pele etc.). Duas causas distintas, as duas
+precisavam ser corrigidas juntas:
+
+1. **`AgX` (color management padrão do Blender 4+/5) dessatura MUITO o vertex color do
+   TripoSR** — em EEVEE/Cycles o personagem saía cinza-lavado mesmo com boa iluminação e
+   a cor de fato presente no mesh (confirmado lendo o `Color Attribute` direto). Só o
+   Workbench "escapava" disso (usa Studio Light fixo, ignora color management). **Fix**:
+   `scene.view_settings.view_transform = "Standard"` em `_setup_render()` — sem
+   tonemapping, mostra a cor real. Se um dia quiser um look mais "cinematográfico", isso
+   é o primeiro lugar a mexer (mas cuidado, é fácil voltar a dessaturar sem perceber).
+2. **Resolução de render abaixo de ~200px perde a cor quase inteira** (confirmado
+   varrendo 64/96/128/192/256/300px na mesma cena: 128px = cinza quase puro, 300px =
+   cor nítida). Hipótese: com o personagem ocupando poucos pixels na tela, o
+   antialiasing do EEVEE mistura a cor de vertex-color com a vizinhança e "borra" pro
+   cinza médio. **Não é bug de código, é physically-based**: o `--resolution` (default
+   **512**, em `criar.py`) já é bem acima do limiar — só apareceu porque testes manuais
+   desta sessão usavam `--resolution 128/192` pra acelerar. **Regra prática: nunca passar
+   `--resolution` abaixo de ~256 se a cor importa** (o `pixelize.py` já faz o downscale
+   de qualidade pro tamanho final do sprite depois, não precisa renderizar pequeno).
+
+Também existe (raro, intermitente, causa não 100% isolada) um bug real do **reimportador**
+glTF do Blender 5.2: às vezes, ao reabrir um `.glb` cujo mesh tem tanto `COLOR_0`
+(vertex color) quanto `JOINTS_0`/`WEIGHTS_0` (skinning), o Blender falha em reconstruir o
+`Color Attribute`/material da cena — **mesmo o arquivo `.glb` tendo os dados corretos**
+(confirmado lendo o binário do glTF direto via `struct`/`json`, sem depender do bpy).
+Não achei o gatilho exato (não é sobre `export_animations`, `export_force_sampling`,
+`export_apply`, nem sobre `material_slot.link`), e não é 100% reprodutível — às vezes o
+reimport funciona normal, às vezes não, com o mesmo código. **Mitigação defensiva**:
+`_recover_vertex_color_from_glb()` em `render_directions.py`, chamada logo após todo
+`import_scene.gltf` de `.glb` — se detectar que o mesh reimportado não tem
+`color_attributes` (sinal do bug), lê o accessor `COLOR_0` bruto do arquivo `.glb` e
+recria o `Color Attribute` + material manualmente. Roda em ~1ms mesmo quando não é
+necessária (early-return se `color_attributes` já existir), então é seguro deixar sempre
+ativa. Se um dia esse bug do Blender for corrigido upstream, essa função vira no-op.
+
 ### Setup de ambiente desta máquina (casa) — registrar p/ não repetir a depuração
 
 Ambiente veio "zerado" (só driver NVIDIA, sem CUDA Toolkit/Python 3.13). Passos que foram
