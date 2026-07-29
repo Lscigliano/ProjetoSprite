@@ -17,6 +17,18 @@ echo.
 set /p IMG="Nome do arquivo de imagem (ex.: guerreiro.png): "
 set /p NOME="Nome do personagem (ex.: guerreiro): "
 
+echo.
+echo Qual classe?
+echo   1 = Guerreiro (golpe corpo-a-corpo)
+echo   2 = Mago (gesto de conjuracao)
+echo   3 = Arqueiro (arco e flecha)
+set /p CLASSE_OPT="Digite 1, 2 ou 3: "
+
+if "%CLASSE_OPT%"=="1" set CLASSE=guerreiro
+if "%CLASSE_OPT%"=="2" set CLASSE=mago
+if "%CLASSE_OPT%"=="3" set CLASSE=arqueiro
+if not defined CLASSE set CLASSE=guerreiro
+
 if not exist "input\%IMG%" (
     echo.
     echo ERRO: nao encontrei "input\%IMG%".
@@ -25,9 +37,9 @@ if not exist "input\%IMG%" (
 )
 
 echo.
-echo Gerando spritesheet, isso pode levar alguns minutos...
+echo Gerando spritesheet (classe: %CLASSE%), isso pode levar alguns minutos...
 echo.
-venv_bpy\Scripts\python.exe criar.py "input\%IMG%" --name "%NOME%"
+venv_bpy\Scripts\python.exe criar.py "input\%IMG%" --name "%NOME%" --classe %CLASSE%
 
 echo.
 echo ============================================================
